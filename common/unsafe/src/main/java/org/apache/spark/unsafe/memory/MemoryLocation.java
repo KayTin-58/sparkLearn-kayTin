@@ -25,9 +25,10 @@ import javax.annotation.Nullable;
  */
 public class MemoryLocation {
 
+  /** long[] */
   @Nullable
   Object obj;
-
+  /** 偏移量 */
   long offset;
 
   public MemoryLocation(@Nullable Object obj, long offset) {

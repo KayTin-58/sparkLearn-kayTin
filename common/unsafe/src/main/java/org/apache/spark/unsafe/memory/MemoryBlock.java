@@ -45,6 +45,7 @@ public class MemoryBlock extends MemoryLocation {
    */
   public static final int FREED_IN_ALLOCATOR_PAGE_NUMBER = -3;
 
+  /** 数据长度 */
   private final long length;
 
   /**
@@ -77,6 +78,7 @@ public class MemoryBlock extends MemoryLocation {
    * Fills the memory block with the specified byte value.
    */
   public void fill(byte value) {
+    /** _UNSAFE.setMemory(object, offset, size, value); */
     Platform.setMemory(obj, offset, length, value);
   }
 }

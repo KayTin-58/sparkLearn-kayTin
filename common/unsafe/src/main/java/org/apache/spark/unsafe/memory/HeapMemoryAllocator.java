@@ -46,12 +46,16 @@ public class HeapMemoryAllocator implements MemoryAllocator {
 
   @Override
   public MemoryBlock allocate(long size) throws OutOfMemoryError {
+    /** 以前说过堆内存用了一个 long[]数组表示，long的字节长度为8 */
     int numWords = (int) ((size + 7) / 8);
     long alignedSize = numWords * 8L;
     assert (alignedSize >= size);
+    /** 很小的分配就不太可能受益于合并 */
     if (shouldPool(alignedSize)) {
       synchronized (this) {
+        /** 首先尝试从一个缓存里面获取 */
         final LinkedList<WeakReference<long[]>> pool = bufferPoolsBySize.get(alignedSize);
+        /** 如果缓存不为空 */
         if (pool != null) {
           while (!pool.isEmpty()) {
             final WeakReference<long[]> arrayReference = pool.pop();
@@ -72,6 +76,7 @@ public class HeapMemoryAllocator implements MemoryAllocator {
     long[] array = new long[numWords];
     MemoryBlock memory = new MemoryBlock(array, Platform.LONG_ARRAY_OFFSET, size);
     if (MemoryAllocator.MEMORY_DEBUG_FILL_ENABLED) {
+      /** 在给定的内存块中设置值 Unsafe.setMemory() */
       memory.fill(MemoryAllocator.MEMORY_DEBUG_FILL_CLEAN_VALUE);
     }
     return memory;
@@ -92,23 +97,24 @@ public class HeapMemoryAllocator implements MemoryAllocator {
     if (MemoryAllocator.MEMORY_DEBUG_FILL_ENABLED) {
       memory.fill(MemoryAllocator.MEMORY_DEBUG_FILL_FREED_VALUE);
     }
-
     // Mark the page as freed (so we can detect double-frees).
     memory.pageNumber = MemoryBlock.FREED_IN_ALLOCATOR_PAGE_NUMBER;
 
     // As an additional layer of defense against use-after-free bugs, we mutate the
     // MemoryBlock to null out its reference to the long[] array.
     long[] array = (long[]) memory.obj;
+    /** 这里只是切断了 MemoryBlock.object对 long[] 的引用*/
     memory.setObjAndOffset(null, 0);
-
     long alignedSize = ((size + 7) / 8) * 8;
     if (shouldPool(alignedSize)) {
       synchronized (this) {
         LinkedList<WeakReference<long[]>> pool = bufferPoolsBySize.get(alignedSize);
         if (pool == null) {
           pool = new LinkedList<>();
+          /** 加入到缓存池 */
           bufferPoolsBySize.put(alignedSize, pool);
         }
+        /** 这里将没有引用的long[] array 重新引用 */
         pool.add(new WeakReference<>(array));
       }
     } else {

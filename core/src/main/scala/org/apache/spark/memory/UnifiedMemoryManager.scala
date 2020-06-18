@@ -211,6 +211,7 @@ object UnifiedMemoryManager {
   }
 
   /**
+   * 此方法很重要
    * Return the total amount of memory shared between execution and storage, in bytes.
    */
   private def getMaxMemory(conf: SparkConf): Long = {
@@ -224,7 +225,7 @@ object UnifiedMemoryManager {
         s"option or ${config.DRIVER_MEMORY.key} in Spark configuration.")
     }
     // SPARK-12759 Check executor memory to fail fast if memory is insufficient
-    if (conf.contains(config.EXECUTOR_MEMORY)) {
+    if (conf.contains(config.EXECUTOR_MEMORY)) { // spark.executor.memory
       val executorMemory = conf.getSizeAsBytes(config.EXECUTOR_MEMORY.key)
       if (executorMemory < minSystemMemory) {
         throw new IllegalArgumentException(s"Executor memory $executorMemory must be at least " +
@@ -233,6 +234,7 @@ object UnifiedMemoryManager {
       }
     }
     val usableMemory = systemMemory - reservedMemory
+    /** MEMORY_FRACTION = 0.6 */
     val memoryFraction = conf.get(config.MEMORY_FRACTION)
     (usableMemory * memoryFraction).toLong
   }

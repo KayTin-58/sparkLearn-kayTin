@@ -144,17 +144,23 @@ public class TaskMemoryManager {
     // off-heap memory. This is subject to change, though, so it may be risky to make this
     // optimization now in case we forget to undo it late when making changes.
     synchronized (this) {
-      // 调用 动态内存管理器来申请内存
+      /** 调用 动态内存管理器来申请内存 */
       long got = memoryManager.acquireExecutionMemory(required, taskAttemptId, mode);
 
       // Try to release memory from other consumers first, then we can reduce the frequency of
       // spilling, avoid to have too many spilled files.
+      /** 如果申请到的逻辑内存小于所需内存 */
       if (got < required) {
         // Call spill() on other consumers to release memory
         // Sort the consumers according their memory usage. So we avoid spilling the same consumer
         // which is just spilled in last few times and re-spilling on it will produce many small
         // spill files.
+        /**
+         * key: memoryUsed
+         * value: List<MemoryConsumer>
+         */
         TreeMap<Long, List<MemoryConsumer>> sortedConsumers = new TreeMap<>();
+        /** 循环 memoryConsumers */
         for (MemoryConsumer c: consumers) {
           if (c != consumer && c.getUsed() > 0 && c.getMode() == mode) {
             long key = c.getUsed();
@@ -163,27 +169,34 @@ public class TaskMemoryManager {
             list.add(c);
           }
         }
+        // 遍历sortedConsumers
         while (!sortedConsumers.isEmpty()) {
           // Get the consumer using the least memory more than the remaining required memory.
+          /** 过滤出那些使用内存量 < (required - got) */
           Map.Entry<Long, List<MemoryConsumer>> currentEntry =
             sortedConsumers.ceilingEntry(required - got);
           // No consumer has used memory more than the remaining required memory.
           // Get the consumer of largest used memory.
+          /** 如果没有，则选择最后一个 */
           if (currentEntry == null) {
             currentEntry = sortedConsumers.lastEntry();
           }
           List<MemoryConsumer> cList = currentEntry.getValue();
           MemoryConsumer c = cList.get(cList.size() - 1);
           try {
+            /** 调用 MemoryConsumer的 spill 方法 */
             long released = c.spill(required - got, consumer);
             if (released > 0) {
               logger.debug("Task {} released {} from {} for {}", taskAttemptId,
                 Utils.bytesToString(released), c, consumer);
+              /** 继续调用逻辑内存申请 */
               got += memoryManager.acquireExecutionMemory(required - got, taskAttemptId, mode);
+              /** 如果申请到的内存 >= 所需内存,则结束该循环 */
               if (got >= required) {
                 break;
               }
             } else {
+              /** 清扫工作 防止一只循环在这个无法有效释放内存的Consumer身上 */
               cList.remove(cList.size() - 1);
               if (cList.isEmpty()) {
                 sortedConsumers.remove(currentEntry.getKey());
@@ -204,8 +217,10 @@ public class TaskMemoryManager {
       }
 
       // call spill() on itself
+      /** 如果把sortedConsumers 都干了个遍，依然没法申请到所需内存大小 */
       if (got < required) {
         try {
+          /** 直接拿自己开刀，开始释放自己 */
           long released = consumer.spill(required - got, consumer);
           if (released > 0) {
             logger.debug("Task {} released {} from itself ({})", taskAttemptId,
@@ -224,7 +239,7 @@ public class TaskMemoryManager {
           // checkstyle.on: RegexpSinglelineJava
         }
       }
-
+      /** 将consumer添加到consumers hash 列表中，分析发现并不保证一定可以分配到申请所需的内存 */
       consumers.add(consumer);
       logger.debug("Task {} acquired {} for {}", taskAttemptId, Utils.bytesToString(got), consumer);
       return got;
@@ -287,14 +302,16 @@ public class TaskMemoryManager {
     if (size > MAXIMUM_PAGE_SIZE_BYTES) {
       throw new TooLargePageException(size);
     }
-
+    /** 这是一个无情的内存申请方法，搞烦了就会无情的剥夺同伴的资源 */
     long acquired = acquireExecutionMemory(size, consumer);
+    /** 直接凉凉 */
     if (acquired <= 0) {
       return null;
     }
-
+    // 之前BitSet 表示
     final int pageNumber;
     synchronized (this) {
+      /** 这里 需要研究下 BitSet.nextClearBit 的用法 */
       pageNumber = allocatedPages.nextClearBit(0);
       if (pageNumber >= PAGE_TABLE_SIZE) {
         releaseExecutionMemory(acquired, consumer);
@@ -303,8 +320,10 @@ public class TaskMemoryManager {
       }
       allocatedPages.set(pageNumber);
     }
+    /** 真正的返回对象  */
     MemoryBlock page = null;
     try {
+      /** 物理内存申请 */
       page = memoryManager.tungstenMemoryAllocator().allocate(acquired);
     } catch (OutOfMemoryError e) {
       logger.warn("Failed to allocate a page ({} bytes), try again.", acquired);
@@ -318,6 +337,7 @@ public class TaskMemoryManager {
       return allocatePage(size, consumer);
     }
     page.pageNumber = pageNumber;
+    /** pageTable = new MemoryBlock[PAGE_TABLE_SIZE] */
     pageTable[pageNumber] = page;
     if (logger.isTraceEnabled()) {
       logger.trace("Allocate page number {} ({} bytes)", pageNumber, acquired);
@@ -327,6 +347,7 @@ public class TaskMemoryManager {
 
   /**
    * Free a block of memory allocated via {@link TaskMemoryManager#allocatePage}.
+   *
    */
   public void freePage(MemoryBlock page, MemoryConsumer consumer) {
     assert (page.pageNumber != MemoryBlock.NO_PAGE_NUMBER) :
@@ -338,17 +359,21 @@ public class TaskMemoryManager {
     assert(allocatedPages.get(page.pageNumber));
     pageTable[page.pageNumber] = null;
     synchronized (this) {
+      /** 将表示页码的bit位置为0 */
       allocatedPages.clear(page.pageNumber);
     }
     if (logger.isTraceEnabled()) {
       logger.trace("Freed page number {} ({} bytes)", page.pageNumber, page.size());
     }
+    /** 页的大小 */
     long pageSize = page.size();
     // Clear the page number before passing the block to the MemoryAllocator's free().
     // Doing this allows the MemoryAllocator to detect when a TaskMemoryManager-managed
     // page has been inappropriately directly freed without calling TMM.freePage().
     page.pageNumber = MemoryBlock.FREED_IN_TMM_PAGE_NUMBER;
+    /** 释放物理内存 */
     memoryManager.tungstenMemoryAllocator().free(page);
+    /** 释放逻辑内存 */
     releaseExecutionMemory(pageSize, consumer);
   }
 
@@ -369,6 +394,7 @@ public class TaskMemoryManager {
       // relative to the page's base offset; this relative offset will fit in 51 bits.
       offsetInPage -= page.getBaseOffset();
     }
+    /** such as pageNumber=5 offsetInPage=100 */
     return encodePageNumberAndOffset(page.pageNumber, offsetInPage);
   }
 
