@@ -32,6 +32,7 @@ public abstract class MemoryConsumer {
   protected final TaskMemoryManager taskMemoryManager;
   private final long pageSize;
   private final MemoryMode mode;
+  /** 使用内存大小 */
   protected long used;
 
   protected MemoryConsumer(TaskMemoryManager taskMemoryManager, long pageSize, MemoryMode mode) {
