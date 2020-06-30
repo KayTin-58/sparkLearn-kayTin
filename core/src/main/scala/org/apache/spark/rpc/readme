@@ -1,0 +1,47 @@
+Spark Rpc 模块讲解
+
+RpcEnv
+   ->new NettyRpcEnvFactory().create(config)
+   ->new NettyRpcEnv()
+
+NettyRpcEnv
+  [Dispatcher,ConcurrentHashMap[RpcAddress, Outbox]]
+  <
+    NettyRpcEnv.postToOutbox(receiver: NettyRpcEndpointRef, message: OutboxMessage)向远程提交发送消息
+       -》OutBox.send(message: OutboxMessage)
+       -》存储消息：OutBox.java.util.LinkedList[OutboxMessage].add(message)
+       -》
+
+    -》serialize：序列化
+    -》deserialize：反序列化
+  >
+
+Dispatcher:消息分发器
+   [endpoints: ConcurrentMap[String, MessageLoop],endpointRefs: ConcurrentMap[RpcEndpoint, RpcEndpointRef]]
+   <
+     postMessage(endpointName: String,message: InboxMessage):发送消息的调用链：
+        MessageLoop.post
+        -》Inbox.post
+        -》存储消息：inbox.java.util.LinkedList[InboxMessage]().add(message)
+        -》处理消息:inbox.process(dispatcher: Dispatcher)
+   >
+
+
+MessageLoop:
+       -》[active = new LinkedBlockingQueue[Inbox]()]
+         -》 receiveLoop()->active.take()->inbox.process(dispatcher)
+
+     -> SharedMessageLoop
+       -》setActive(inbox)
+     -> DedicatedMessageLoop
+       -》setActive(inbox)
+
+
+Inbox: 本地端点
+   []
+
+Outbox: 远程端点
+   []
+
+TransportServer：传输服务
+   []
