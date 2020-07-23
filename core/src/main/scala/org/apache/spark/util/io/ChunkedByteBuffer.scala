@@ -34,9 +34,8 @@ import org.apache.spark.unsafe.array.ByteArrayMethods
 import org.apache.spark.util.Utils
 
 /**
- * Read-only byte buffer which is physically stored as multiple chunks rather than a single
- * contiguous array.
- *
+ * Read-only byte buffer which is physically stored as multiple chunks rather than a single contiguous array.
+ * 只读字节缓冲区作为多个物理存储块而不是一个连续的数组  Array[ByteBuffer]
  * @param chunks an array of [[ByteBuffer]]s. Each buffer in this array must have position == 0.
  *               Ownership of these buffers is transferred to the ChunkedByteBuffer, so if these
  *               buffers may also be used elsewhere then the caller is responsible for copying
@@ -63,9 +62,11 @@ private[spark] class ChunkedByteBuffer(var chunks: Array[ByteBuffer]) {
   }
 
   /**
-   * Write this buffer to a channel.
+   * Write this buffer to a channel
+   * @param channel  WritableByte 管道
    */
   def writeFully(channel: WritableByteChannel): Unit = {
+    /** bytes <- Array[ByteBuffer] */
     for (bytes <- getChunks()) {
       val originalLimit = bytes.limit()
       while (bytes.hasRemaining) {
@@ -78,7 +79,9 @@ private[spark] class ChunkedByteBuffer(var chunks: Array[ByteBuffer]) {
         // Please refer to http://www.evanjones.ca/java-bytebuffer-leak.html for more details.
         val ioSize = Math.min(bytes.remaining(), bufferWriteChunkSize)
         bytes.limit(bytes.position() + ioSize)
+        /** 写到管道里面 */
         channel.write(bytes)
+        /** 更新limit */
         bytes.limit(originalLimit)
       }
     }
@@ -102,6 +105,7 @@ private[spark] class ChunkedByteBuffer(var chunks: Array[ByteBuffer]) {
         s"cannot call toArray because buffer size ($size bytes) exceeds maximum array size")
     }
     val byteChannel = new ByteArrayWritableChannel(size.toInt)
+    /** 写到一个管道里面 */
     writeFully(byteChannel)
     byteChannel.close()
     byteChannel.getData
@@ -138,6 +142,7 @@ private[spark] class ChunkedByteBuffer(var chunks: Array[ByteBuffer]) {
    * Get duplicates of the ByteBuffers backing this ChunkedByteBuffer.
    */
   def getChunks(): Array[ByteBuffer] = {
+    /** duplicate:Creates a new byte buffer that shares this buffer's content. */
     chunks.map(_.duplicate())
   }
 
@@ -171,7 +176,11 @@ private[spark] class ChunkedByteBuffer(var chunks: Array[ByteBuffer]) {
 }
 
 private[spark] object ChunkedByteBuffer {
-
+  /**
+   *
+   * @param data ManagedBuffer -> ByteBuf
+   * @return ChunkedByteBuffer
+   */
   def fromManagedBuffer(data: ManagedBuffer): ChunkedByteBuffer = {
     data match {
       case f: FileSegmentManagedBuffer =>
@@ -187,10 +196,18 @@ private[spark] object ChunkedByteBuffer {
     fromFile(file, 0, file.length())
   }
 
+  /**
+   * file -> ChunkedByteBuffer
+   *
+   * @param file   文件
+   * @param offset 偏移
+   * @param length 长度
+   * @return ChunkedByteBuffer
+   */
   private def fromFile(
-      file: File,
-      offset: Long,
-      length: Long): ChunkedByteBuffer = {
+                        file: File,
+                        offset: Long,
+                        length: Long): ChunkedByteBuffer = {
     // We do *not* memory map the file, because we may end up putting this into the memory store,
     // and spark currently is not expecting memory-mapped buffers in the memory store, it conflicts
     // with other parts that manage the lifecyle of buffers and dispose them.  See SPARK-25422.
@@ -216,8 +233,8 @@ private[spark] object ChunkedByteBuffer {
  *                in order to close any memory-mapped files which back the buffer.
  */
 private[spark] class ChunkedByteBufferInputStream(
-    var chunkedByteBuffer: ChunkedByteBuffer,
-    dispose: Boolean)
+                                                   var chunkedByteBuffer: ChunkedByteBuffer,
+                                                   dispose: Boolean)
   extends InputStream {
 
   // Filter out empty chunks since `read()` assumes all chunks are non-empty.
