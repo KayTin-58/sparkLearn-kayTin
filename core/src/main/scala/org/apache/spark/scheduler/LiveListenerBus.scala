@@ -147,6 +147,7 @@ private[spark] class LiveListenerBus(conf: SparkConf) {
     // Otherwise, need to synchronize to check whether the bus is started, to make sure the thread
     // calling start() picks up the new event.
     synchronized {
+      /** bus is not started */
       if (!started.get()) {
         queuedEvents += event
         return

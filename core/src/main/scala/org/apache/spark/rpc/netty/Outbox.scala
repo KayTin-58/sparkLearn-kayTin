@@ -168,6 +168,7 @@ private[netty] class Outbox(nettyEnv: NettyRpcEnv, val address: RpcAddress) {
       }
       draining = true
     }
+    /** 发送消息 */
     while (true) {
       try {
         val _client = synchronized { client }

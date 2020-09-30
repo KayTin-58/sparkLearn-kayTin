@@ -41,7 +41,7 @@ import org.apache.spark.util.{Utils => TryUtils}
  * partitioned file with a different byte range for each partition, suitable for shuffle fetches.
  * 排序并可能合并多个类型为（K，V）的键-值对以生成类型为（K，C）的键组合器对。 使用分区程序首先将键分组到分区中，
  * 然后使用自定义比较器对每个分区中的键进行有选择的排序。 可以输出单个分区文件，每个分区具有不同的字节范围，适用于随机读取。
- *
+ * {[K,V],[K,V],[K,V],[K,V]} => [K,C]
  * If combining is disabled, the type C must equal V -- we'll cast the objects at the end.
  * 如果禁用组合，则类型C必须等于V-我们将在最后投射对象。
  *
@@ -56,13 +56,13 @@ import org.apache.spark.util.{Utils => TryUtils}
  * @param serializer serializer to use when spilling to disk
  *
  * Note that if an Ordering is given, we'll always sort using it, so only provide it if you really
- * want the output keys to be sorted. In a map task without map-side combine for example, you
- * probably want to pass None as the ordering to avoid extra sorting. On the other hand, if you do
- * want to do combining, having an Ordering is more efficient than not having it.
+ * want the output keys to be sorted(输出的key是有序的). In a map task without map-side combine for example, you
+ * probably want to pass None as the ordering to avoid extra sorting(没有map端聚合避免额外排序). On the other hand,
+ * if you do want to do combining, having an Ordering is more efficient than not having it.
  *
  * Users interact with this class in the following way:
  *
- * 1. Instantiate an ExternalSorter.
+ * 1. Instantiate an ExternalSorter(初始化).
  *
  * 2. Call insertAll() with a set of records.
  *
@@ -77,18 +77,18 @@ import org.apache.spark.util.{Utils => TryUtils}
  *    we want to combine by key, or a PartitionedPairBuffer if we don't.
  *    Inside these buffers, we sort elements by partition ID and then possibly also by key.
  *    To avoid calling the partitioner(分割者) multiple times with each key, we store the partition ID
- *    alongside each record(我们存储分区ID, 在每条记录).
+ *    alongside(与……一起) each record(我们存储分区ID, 在每条记录).
  *
- *  - When each buffer reaches our memory limit(缓冲区到达内存大小限制), we spill it to a file(溢出到file). This file is sorted first
- *    by partition ID and possibly second by key or by hash code of the key(文件有两次分区), if we want to do
- *    aggregation. For each file, we track how many objects were in each partition in memory, so we
+ *  - When each buffer reaches(到达) our memory limit(缓冲区到达内存大小限制), we spill it to a file(溢出到file). This file
+ *    is sorted first by partition ID and possibly second by key or by hash code of the key(文件有两次分区),
+ *    if we want to do aggregation. For each file, we track(跟踪) how many objects were in each partition in memory, so we
  *    don't have to write out the partition ID for every element.
  *
- *  - When the user requests an iterator or file output, the spilled files are merged, along with
+ *  - When the user requests an iterator or file output(迭代器或文件输出), the spilled files are merged, along with(随着)
  *    any remaining(剩下的) in-memory data, using the same sort order defined above (unless both sorting
- *    and aggregation are disabled). If we need to aggregate by key, we either use a total ordering
+ *    and aggregation are disabled(禁用)). If we need to aggregate by key, we either use a total ordering
  *    from the ordering parameter, or read the keys with the same hash code and compare them with
- *    each other for equality to merge values.
+ *    each other for equality(平等) to merge values.
  *
  *  - Users are expected to call stop() at the end to delete all the intermediate files.
  */
@@ -100,7 +100,18 @@ private[spark] class ExternalSorter[K, V, C](
     serializer: Serializer = SparkEnv.get.serializer)
   extends Spillable[WritablePartitionedPairCollection[K, C]](context.taskMemoryManager())
   with Logging {
-
+  /** select age from temp_table group by age
+   *     name   age
+   *     zhang  12
+   *  p1 li     13
+   *     wang   15      p1 12 zhang
+   *                    p2 13 (li,can)
+   *     can    13      p3 15 (wang,bing)
+   *  p2 bing   15      p4 16 yang
+   *     yang   16
+   *
+   *
+   * */
   private val conf = SparkEnv.get.conf
   /** 基础信息 */
   private val numPartitions = partitioner.map(_.numPartitions).getOrElse(1)
@@ -134,7 +145,7 @@ private[spark] class ExternalSorter[K, V, C](
   @volatile private var map = new PartitionedAppendOnlyMap[K, C]
   @volatile private var buffer = new PartitionedPairBuffer[K, C]
 
-  // Total spilling statistics
+  // Total spilling statistics 总共溢出的统计
   private var _diskBytesSpilled = 0L
   def diskBytesSpilled: Long = _diskBytesSpilled
 
@@ -189,8 +200,12 @@ private[spark] class ExternalSorter[K, V, C](
     if (shouldCombine) {
       // Combine values in-memory first using our AppendOnlyMap
       val mergeValue = aggregator.get.mergeValue
+      /** 一个键在分区上的首次遇到创建初始值 */
       val createCombiner = aggregator.get.createCombiner
       var kv: Product2[K, V] = null
+      /**
+       * 匿名函数 这里也可以很好的解释了 combineByKey函数的参数 mergeValue 和 createCombiner
+       */
       val update = (hadValue: Boolean, oldValue: C) => {
         if (hadValue) mergeValue(oldValue, kv._2) else createCombiner(kv._2)
       }
@@ -198,16 +213,19 @@ private[spark] class ExternalSorter[K, V, C](
         // 记录
         addElementsRead()
         kv = records.next()
+        println("key："+kv._1+"===="+"value:"+kv._2)
+        /** PartitionedAppendOnlyMap[K, C]  这里的 key(partitionID,)*/
+        /** 这里的key是由 分区id和key联合组成的  */
         map.changeValue((getPartition(kv._1), kv._1), update)
+        //Spill the current in-memory collection to disk if needed
+        /** 内存操作 写缓存待disk */
         maybeSpillCollection(usingMap = true)
       }
     } else {
-      /** 没有map端聚合 */
       // Stick values into our buffer
       while (records.hasNext) {
         addElementsRead()
         val kv = records.next()
-        //
         buffer.insert(getPartition(kv._1), kv._1, kv._2.asInstanceOf[C])
         maybeSpillCollection(usingMap = false)
       }
@@ -222,8 +240,12 @@ private[spark] class ExternalSorter[K, V, C](
   private def maybeSpillCollection(usingMap: Boolean): Unit = {
     var estimatedSize = 0L
     if (usingMap) {
+      /** 估算当前集合所占内存大小 */
       estimatedSize = map.estimateSize()
+      /** 2、分别针对map和buffer */
+      /** 3、调用maybeSpill方法 */
       if (maybeSpill(map, estimatedSize)) {
+        /** 溢出到disk 并重新初始化 map */
         map = new PartitionedAppendOnlyMap[K, C]
       }
     } else {
@@ -241,12 +263,14 @@ private[spark] class ExternalSorter[K, V, C](
   /**
    * Spill our in-memory collection to a sorted file that we can merge later.
    * We add this file into `spilledFiles` to find it later.
-   *
+   * 将缓冲区溢出到disk的逻辑
    * @param collection whichever collection we're using (map or buffer)
    */
   override protected[this] def spill(collection: WritablePartitionedPairCollection[K, C]): Unit = {
+    /** WritablePartitionedIterator  */
     val inMemoryIterator = collection.destructiveSortedWritablePartitionedIterator(comparator)
     val spillFile = spillMemoryIteratorToDisk(inMemoryIterator)
+    /** new ArrayBuffer[SpilledFile] */
     spills += spillFile
   }
 
@@ -338,7 +362,7 @@ private[spark] class ExternalSorter[K, V, C](
   }
 
   /**
-   * Merge a sequence of sorted files, giving an iterator over partitions and then over elements
+   * Merge a sequence of sorted files[合并排序的序列文件], giving an iterator over partitions and then over elements
    * inside each partition. This can be used to either write out a new file or return data to
    * the user.
    *

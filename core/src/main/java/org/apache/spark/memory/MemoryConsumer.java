@@ -109,7 +109,7 @@ public abstract class MemoryConsumer {
   }
 
   /**
-   * Allocate a memory block with at least `required` bytes.
+   * Allocate a memory block with at least `required` bytes. 申请内存快
    *
    * @throws SparkOutOfMemoryError
    */

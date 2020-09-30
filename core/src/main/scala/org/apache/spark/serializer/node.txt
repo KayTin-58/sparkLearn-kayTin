@@ -1,0 +1,3 @@
+SerializerManager
+    -> dataSerialize(values: Iterator[T]) => ChunkedByteBuffer
+    -> dataDeserializeStream(inputStream: InputStream) => Iterator[T]

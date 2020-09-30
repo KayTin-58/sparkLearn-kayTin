@@ -1,0 +1,59 @@
+入口开始：
+ShuffleManager
+   SortShuffleManager：
+
+
+
+BaseShuffleHandle[K, V, C](shuffleId: Int,
+                               val dependency: ShuffleDependency[K, V, C]):
+
+
+/** map端的操作 */
+def getWriter[K, V](
+      handle: ShuffleHandle,
+      mapId: Long,
+      context: TaskContext,
+      metrics: ShuffleWriteMetricsReporter): ShuffleWriter[K, V]
+
+ShuffleWriter  ->
+     UnsafeShuffleWriter
+     BypassMergeSortShuffleWriter
+     SortShuffleWriter
+
+/** reduce端操作 */
+def getWriter[K, V](
+      handle: ShuffleHandle,
+      mapId: Long,
+      context: TaskContext,
+      metrics: ShuffleWriteMetricsReporter): ShuffleWriter[K, V] = {
+    val mapTaskIds = taskIdMapsForShuffle.computeIfAbsent(
+      handle.shuffleId, _ => new OpenHashSet[Long](16))
+    mapTaskIds.synchronized { mapTaskIds.add(context.taskAttemptId()) }
+    val env = SparkEnv.get
+    /** shuffleHandle 在这里做模式匹配 */
+    handle match {
+      case unsafeShuffleHandle: SerializedShuffleHandle[K @unchecked, V @unchecked] =>
+        new UnsafeShuffleWriter(
+          env.blockManager,
+          context.taskMemoryManager(),
+          unsafeShuffleHandle,
+          mapId,
+          context,
+          env.conf,
+          metrics,
+          shuffleExecutorComponents)
+      case bypassMergeSortHandle: BypassMergeSortShuffleHandle[K @unchecked, V @unchecked] =>
+        new BypassMergeSortShuffleWriter(
+          env.blockManager,
+          bypassMergeSortHandle,
+          mapId,
+          env.conf,
+          metrics,
+          shuffleExecutorComponents)
+      case other: BaseShuffleHandle[K @unchecked, V @unchecked, _] =>
+        new SortShuffleWriter(
+          shuffleBlockResolver, other, mapId, context, shuffleExecutorComponents)
+    }
+  }
+
+  ExternalSorter

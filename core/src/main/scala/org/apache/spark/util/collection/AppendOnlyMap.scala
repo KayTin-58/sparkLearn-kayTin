@@ -101,19 +101,24 @@ class AppendOnlyMap[K, V](initialCapacity: Int = 64)
       haveNullValue = true
       return
     }
+    /** 计算得到pos */
     var pos = rehash(key.hashCode) & mask
     var i = 1
     while (true) {
+      /** 根据pos获取key值 */
       val curKey = data(2 * pos)
       if (curKey.eq(null)) {
+        /** 如果key在原始缓存中不存在 */
         data(2 * pos) = k
         data(2 * pos + 1) = value.asInstanceOf[AnyRef]
         incrementSize()  // Since we added a new key
         return
       } else if (k.eq(curKey) || k.equals(curKey)) {
+        /** 更新该 k对应的value  */
         data(2 * pos + 1) = value.asInstanceOf[AnyRef]
         return
       } else {
+        /**  */
         val delta = i
         pos = (pos + delta) & mask
         i += 1
@@ -137,13 +142,15 @@ class AppendOnlyMap[K, V](initialCapacity: Int = 64)
       haveNullValue = true
       return nullValue
     }
+    /** 计算下标 */
     var pos = rehash(k.hashCode) & mask
     var i = 1
     while (true) {
       /** data = new Array[AnyRef](2 * capacity) */
       val curKey = data(2 * pos)
       if (curKey.eq(null)) {
-        /** 这里使用了null.asInstanceOf[V]
+        /**
+         * 这里使用了null.asInstanceOf[V]
          *  再来看看 updateFunc函数的定义
          * val update = (hadValue: Boolean, oldValue: C) => {
          *      if (hadValue) mergeValue(oldValue, kv._2) else createCombiner(kv._2)
@@ -156,7 +163,9 @@ class AppendOnlyMap[K, V](initialCapacity: Int = 64)
         incrementSize()
         return newValue
       } else if (k.eq(curKey) || k.equals(curKey)) {
+        /** 不为空时 先更新value得到一个 newValue  */
         val newValue = updateFunc(true, data(2 * pos + 1).asInstanceOf[V])
+        /** 重置data里面的值 */
         data(2 * pos + 1) = newValue.asInstanceOf[AnyRef]
         return newValue
       } else {
@@ -222,14 +231,17 @@ class AppendOnlyMap[K, V](initialCapacity: Int = 64)
   /** Double the table's size and re-hash everything */
   protected def growTable(): Unit = {
     // capacity < MAXIMUM_CAPACITY (2 ^ 29) so capacity * 2 won't overflow
+    /** 1、计算新的容量[原始容量*2] */
     val newCapacity = capacity * 2
     require(newCapacity <= MAXIMUM_CAPACITY, s"Can't contain more than ${growThreshold} elements")
-    /** 创建一个新的数组容器 */
+    /** 2、创建一个新的数组容器 */
     val newData = new Array[AnyRef](2 * newCapacity)
+    /** 3、重新计算mask的值 */
     val newMask = newCapacity - 1
     // Insert all our old values into the new array. Note that because our old keys are
     // unique, there's no need to check for equality here when we insert.
     var oldPos = 0
+    /** 4、开始遍历老的data */
     while (oldPos < capacity) {
       if (!data(2 * oldPos).eq(null)) {
         /** 获取原始数组的[key,value] */
@@ -240,12 +252,15 @@ class AppendOnlyMap[K, V](initialCapacity: Int = 64)
         var i = 1
         var keepGoing = true
         while (keepGoing) {
+          /** 获取新 pos上的key */
           val curKey = newData(2 * newPos)
+          /** 如果为空 */
           if (curKey.eq(null)) {
             newData(2 * newPos) = key
             newData(2 * newPos + 1) = value
             keepGoing = false
           } else {
+            /** key的hash冲突 */
             val delta = i
             newPos = (newPos + delta) & newMask
             i += 1
@@ -254,6 +269,7 @@ class AppendOnlyMap[K, V](initialCapacity: Int = 64)
       }
       oldPos += 1
     }
+    /** 更新 */
     data = newData
     capacity = newCapacity
     mask = newMask
@@ -273,6 +289,7 @@ class AppendOnlyMap[K, V](initialCapacity: Int = 64)
   /**
    * Return an iterator of the map in sorted order. This provides a way to sort the map without
    * using additional memory, at the expense of destroying the validity of the map.
+   * 以排序顺序返回map的迭代器。 这提供了一种在不使用额外内存的情况下对map进行排序的方法，但代价是破坏了地图的有效性。
    */
   def destructiveSortedIterator(keyComparator: Comparator[K]): Iterator[(K, V)] = {
     destroyed = true

@@ -43,6 +43,18 @@ private[spark] object RpcEnv {
     create(name, host, host, port, conf, securityManager, 0, clientMode)
   }
   /** Rpc的入口 */
+  /**
+   *
+   * @param name
+   * @param bindAddress
+   * @param advertiseAddress
+   * @param port
+   * @param conf
+   * @param securityManager
+   * @param numUsableCores
+   * @param clientMode
+   * @return
+   */
   def create(
       name: String,
       bindAddress: String,

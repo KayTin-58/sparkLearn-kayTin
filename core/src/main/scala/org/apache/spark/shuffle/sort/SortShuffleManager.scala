@@ -34,12 +34,12 @@ import org.apache.spark.util.collection.OpenHashSet
  * read their portion of the map output. In cases where the map output data is too large to fit in
  * memory, sorted subsets of the output can be spilled to disk and those on-disk files are merged
  * to produce the final output file.
- * 基于sort-based的shuffle中，传入的记录通过其目标分区ID进行排序,然后写入单个映射输出文件。Reducers获取此文件的连续区域，
+ * 基于sort-based的shuffle中，增长的记录通过其目标分区ID进行排序,然后写入单个映射输出文件。Reducers获取此文件的连续区域，
  * 以读取其映射输出的一部分。如果映射输出数据太大而无法容纳在内存中，则可以将输出的排序子集溢出到磁盘，然后将那些磁盘上的文件合
  * 并以生成最终的输出文件。
  *
  * Sort-based shuffle has two different write paths for producing its map output files:
- * 基于排序的混洗具有两个不同的写入路径来生成其映射输出文件：
+ * 基于排序的混洗具有两个不同的写入路径来生成其map输出文件：
  *  - Serialized sorting: used when all three of the following conditions hold:
  *    1. The shuffle dependency specifies no map-side combine. 没用map端聚合
  *    2. The shuffle serializer supports relocation of serialized values (this is currently
@@ -52,20 +52,22 @@ import org.apache.spark.util.collection.OpenHashSet
  * -----------------------
  *
  * In the serialized sorting mode, incoming records are serialized as soon as they are passed to the
- * shuffle writer and are buffered in a serialized form during sorting. This write path implements
- * several optimizations:
- *
- *  - Its sort operates on serialized binary data rather than Java objects, which reduces memory
- *    consumption and GC overheads. This optimization requires the record serializer to have certain
- *    properties to allow serialized records to be re-ordered without requiring deserialization.
+ * shuffle writer and are buffered in a serialized form during sorting(在排序过程中以序列化形式缓冲). This
+ * write path implements several optimizations（优化）:
+ *    // 支持序列化排序，序列化后的数据
+ *  - Its sort operates on serialized binary data rather than(不再是) Java objects, which reduces memory
+ *    consumption(浪费) and GC overheads. This optimization requires the record serializer(序列化记录) to have certain(确定的)
+ *    properties(属性) to allow serialized records to be re-ordered without requiring deserialization.
  *    See SPARK-4550, where this optimization was first proposed and implemented, for more details.
  *
  *  - It uses a specialized cache-efficient sorter ([[ShuffleExternalSorter]]) that sorts
  *    arrays of compressed record pointers and partition ids. By using only 8 bytes of space per
  *    record in the sorting array, this fits more of the array into cache.
  *
+ *    //溢出合并过程对属于同一分区的序列化记录块进行操作，并且在合并过程中无需反序列化记录。
  *  - The spill merging procedure operates on blocks of serialized records that belong to the same
  *    partition and does not need to deserialize records during the merge.
+ *
  *
  *  - When the spill compression codec supports concatenation of compressed data, the spill merge
  *    simply concatenates the serialized and compressed spill partitions to produce the final output

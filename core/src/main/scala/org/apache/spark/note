@@ -1,0 +1,17 @@
+// numPartitions：分区数量
+ShuffleStatus(numPartitions: Int)
+       // 每个分区一个MapStatus 主要的容器
+   =》 mapStatuses = new Array[MapStatus](numPartitions)
+
+
+MapOutputTrackerMessage
+    ----- GetMapOutputStatuses
+    ----- StopMapOutputTracker
+
+MapOutputTracker:
+    ----- MapOutputTrackerMaster
+          [ shuffleStatuses = new ConcurrentHashMap[Int, ShuffleStatus]()
+
+          ]
+    ----- MapOutputTrackerWorker
+
