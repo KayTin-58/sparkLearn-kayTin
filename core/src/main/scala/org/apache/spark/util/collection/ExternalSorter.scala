@@ -200,11 +200,11 @@ private[spark] class ExternalSorter[K, V, C](
     if (shouldCombine) {
       // Combine values in-memory first using our AppendOnlyMap
       val mergeValue = aggregator.get.mergeValue
-      /** 一个键在分区上的首次遇到创建初始值 */
+      /** 1、一个键在分区上的首次遇到创建初始值 */
       val createCombiner = aggregator.get.createCombiner
       var kv: Product2[K, V] = null
       /**
-       * 匿名函数 这里也可以很好的解释了 combineByKey函数的参数 mergeValue 和 createCombiner
+       *  2、匿名函数 这里也可以很好的解释了 combineByKey函数的参数 mergeValue 和 createCombiner
        */
       val update = (hadValue: Boolean, oldValue: C) => {
         if (hadValue) mergeValue(oldValue, kv._2) else createCombiner(kv._2)
@@ -218,7 +218,7 @@ private[spark] class ExternalSorter[K, V, C](
         /** 这里的key是由 分区id和key联合组成的  */
         map.changeValue((getPartition(kv._1), kv._1), update)
         //Spill the current in-memory collection to disk if needed
-        /** 内存操作 写缓存待disk */
+        /** 内存操作 写缓存到disk */
         maybeSpillCollection(usingMap = true)
       }
     } else {
@@ -245,10 +245,11 @@ private[spark] class ExternalSorter[K, V, C](
       /** 2、分别针对map和buffer */
       /** 3、调用maybeSpill方法 */
       if (maybeSpill(map, estimatedSize)) {
-        /** 溢出到disk 并重新初始化 map */
+        /** 4、溢出到disk 并重新初始化 map */
         map = new PartitionedAppendOnlyMap[K, C]
       }
     } else {
+      /** 和上面类似 */
       estimatedSize = buffer.estimateSize()
       if (maybeSpill(buffer, estimatedSize)) {
         buffer = new PartitionedPairBuffer[K, C]
@@ -269,6 +270,7 @@ private[spark] class ExternalSorter[K, V, C](
   override protected[this] def spill(collection: WritablePartitionedPairCollection[K, C]): Unit = {
     /** WritablePartitionedIterator  */
     val inMemoryIterator = collection.destructiveSortedWritablePartitionedIterator(comparator)
+    /** 从内存写到磁盘 */
     val spillFile = spillMemoryIteratorToDisk(inMemoryIterator)
     /** new ArrayBuffer[SpilledFile] */
     spills += spillFile
@@ -294,20 +296,23 @@ private[spark] class ExternalSorter[K, V, C](
 
   /**
    * Spill contents of in-memory iterator to a temporary file on disk.
+   * 内存写磁盘的详细过程
    */
   private[this] def spillMemoryIteratorToDisk(inMemoryIterator: WritablePartitionedIterator)
       : SpilledFile = {
     // Because these files may be read during shuffle, their compression must be controlled by
     // spark.shuffle.compress instead of spark.shuffle.spill.compress, so we need to use
     // createTempShuffleBlock here; see SPARK-3426 for more context.
+    /** 1、创建临时的磁盘快 */
     val (blockId, file) = diskBlockManager.createTempShuffleBlock()
 
     // These variables are reset after each flush
     var objectsWritten: Long = 0
     val spillMetrics: ShuffleWriteMetrics = new ShuffleWriteMetrics
+    /** 2、获取磁盘的writer */
     val writer: DiskBlockObjectWriter =
       blockManager.getDiskWriter(blockId, file, serInstance, fileBufferSize, spillMetrics)
-
+    /** 3、初始化两个容器  batchSizes：记录每个批次写到磁盘中的文件大小 elementsPerPartition：每个分区中的文件数量 */
     // List of batch sizes (bytes) in the order they are written to disk
     val batchSizes = new ArrayBuffer[Long]
 
@@ -325,14 +330,17 @@ private[spark] class ExternalSorter[K, V, C](
 
     var success = false
     try {
+      /** 3、遍历内存数据的迭代器 */
       while (inMemoryIterator.hasNext) {
         val partitionId = inMemoryIterator.nextPartition()
         require(partitionId >= 0 && partitionId < numPartitions,
           s"partition Id: ${partitionId} should be in the range [0, ${numPartitions})")
+        /** 4、调用WritablePartitionedIterator 的 writerNext方法，这里实际是调用了磁盘的 writer来写数据到磁盘 最后实际上是调用的 两个序列化器的写对象的方法 */
         inMemoryIterator.writeNext(writer)
+        /** 5、更新记录器 */
         elementsPerPartition(partitionId) += 1
         objectsWritten += 1
-
+        /** 6、刷新writer */
         if (objectsWritten == serializerBatchSize) {
           flush()
         }
@@ -367,9 +375,9 @@ private[spark] class ExternalSorter[K, V, C](
    * the user.
    *
    * Returns an iterator over all the data written to this object, grouped by partition. For each
-   * partition we then have an iterator over its contents, and these are expected to be accessed
-   * in order (you can't "skip ahead" to one partition without reading the previous one).
-   * Guaranteed to return a key-value pair for each partition, in order of partition ID.
+   * partition we then have an iterator over its contents[对于每个分区，我们对其内容进行迭代], and these
+   * are expected to be accessed in order (you can't "skip ahead" to one partition without reading
+   * the previous one).Guaranteed to return a key-value pair for each partition, in order of partition ID.
    */
   private def merge(spills: Seq[SpilledFile], inMemory: Iterator[((Int, K), C)])
       : Iterator[(Int, Iterator[Product2[K, C]])] = {
