@@ -75,6 +75,7 @@ private[spark] object WritablePartitionedPairCollection {
    * A comparator for (Int, K) pairs that orders them both by their partition ID and a key ordering.
    */
   def partitionKeyComparator[K](keyComparator: Comparator[K]): Comparator[(Int, K)] =
+   /** a._1为分区ID a._2为key */
     (a: (Int, K), b: (Int, K)) => {
       val partitionDiff = a._1 - b._1
       if (partitionDiff != 0) {

@@ -148,19 +148,23 @@ class ExternalAppendOnlyMap[K, V, C](
     // An update function for the map that we reuse across entries to avoid allocating
     // a new closure each time
     var curEntry: Product2[K, V] = null
+    /** 1、更新函数 */
     val update: (Boolean, C) => C = (hadVal, oldVal) => {
       if (hadVal) mergeValue(oldVal, curEntry._2) else createCombiner(curEntry._2)
     }
-
+    /** 2、遍历数据集合迭代器 */
     while (entries.hasNext) {
       curEntry = entries.next()
+      /** 3、估算大小 */
       val estimatedSize = currentMap.estimateSize()
       if (estimatedSize > _peakMemoryUsedBytes) {
         _peakMemoryUsedBytes = estimatedSize
       }
+      /** 4、内存溢出到磁盘 */
       if (maybeSpill(currentMap, estimatedSize)) {
         currentMap = new SizeTrackingAppendOnlyMap[K, C]
       }
+      /** 5、写到内存 */
       currentMap.changeValue(curEntry._1, update)
       addElementsRead()
     }
@@ -183,7 +187,9 @@ class ExternalAppendOnlyMap[K, V, C](
    * Sort the existing contents of the in-memory map and spill them to a temporary file on disk.
    */
   override protected[this] def spill(collection: SizeTracker): Unit = {
+    /** 1、排序 */
     val inMemoryIterator = currentMap.destructiveSortedIterator(keyComparator)
+    /** 2、溢出到磁盘 */
     val diskMapIterator = spillMemoryIteratorToDisk(inMemoryIterator)
     spilledMaps += diskMapIterator
   }

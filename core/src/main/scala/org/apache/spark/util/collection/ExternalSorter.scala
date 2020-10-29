@@ -370,6 +370,7 @@ private[spark] class ExternalSorter[K, V, C](
   }
 
   /**
+   * 合并小文件
    * Merge a sequence of sorted files[合并排序的序列文件], giving an iterator over partitions and then over elements
    * inside each partition. This can be used to either write out a new file or return data to
    * the user.
@@ -402,6 +403,7 @@ private[spark] class ExternalSorter[K, V, C](
 
   /**
    * Merge-sort a sequence of (K, C) iterators using a given a comparator for the keys.
+   * 合并小文件 并排序
    */
   private def mergeSort(iterators: Seq[Iterator[Product2[K, C]]], comparator: Comparator[K])
       : Iterator[Product2[K, C]] = {
@@ -433,6 +435,7 @@ private[spark] class ExternalSorter[K, V, C](
    * iterator is sorted by key with a given comparator. If the comparator is not a total ordering
    * (e.g. when we sort objects by hash code and different keys may compare as equal although
    * they're not), we still merge them by doing equality tests for all keys that compare as equal.
+   * 分区合并聚合
    */
   private def mergeWithAggregation(
       iterators: Seq[Iterator[Product2[K, C]]],
@@ -685,20 +688,28 @@ private[spark] class ExternalSorter[K, V, C](
    */
   def partitionedIterator: Iterator[(Int, Iterator[Product2[K, C]])] = {
     val usingMap = aggregator.isDefined
+    /** 1、根据aggregator.isDefined来获取容器类型 */
     val collection: WritablePartitionedPairCollection[K, C] = if (usingMap) map else buffer
+    /** 2、判断溢出文件描述对象容器是否为空 */
     if (spills.isEmpty) {
+      /** 2.1 如果唯恐 */
       // Special case: if we have only in-memory data, we don't need to merge streams, and perhaps
       // we don't even need to sort by anything other than partition ID
       if (ordering.isEmpty) {
+        /** 仅仅根据分区ID排序 */
         // The user hasn't requested sorted keys, so only sort by partition ID, not key
         groupByPartition(destructiveIterator(collection.partitionedDestructiveSortedIterator(None)))
       } else {
+        /** 根据分区ID和key排序 */
+        log.error("partitionedIterator,spills:{}",spills.size)
         // We do need to sort by both partition ID and key
         groupByPartition(destructiveIterator(
           collection.partitionedDestructiveSortedIterator(Some(keyComparator))))
       }
     } else {
+      /** 2.2 合并spills文件碎片 */
       // Merge spilled and in-memory data
+      log.error("partitionedIterator,spills:{}",spills.size)
       merge(spills, destructiveIterator(
         collection.partitionedDestructiveSortedIterator(comparator)))
     }
@@ -852,6 +863,7 @@ private[spark] class ExternalSorter[K, V, C](
   private def groupByPartition(data: Iterator[((Int, K), C)])
       : Iterator[(Int, Iterator[Product2[K, C]])] =
   {
+    log.error("groupByPartition,data:{}",data.size)
     val buffered = data.buffered
     (0 until numPartitions).iterator.map(p => (p, new IteratorForPartition(p, buffered)))
   }
