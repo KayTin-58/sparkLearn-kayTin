@@ -382,13 +382,18 @@ private[spark] class ExternalSorter[K, V, C](
    */
   private def merge(spills: Seq[SpilledFile], inMemory: Iterator[((Int, K), C)])
       : Iterator[(Int, Iterator[Product2[K, C]])] = {
+    /** 1、一个内部类 用于按分区读取溢出的文件分区。 期望按顺序请求所有分区。  */
     val readers = spills.map(new SpillReader(_))
+    /** 2、获取一个 BufferedIterator */
     val inMemBuffered = inMemory.buffered
+    /** 3、giving an iterator over partitions */
     (0 until numPartitions).iterator.map { p =>
+      /** 5、then over elements inside each partition */
       val inMemIterator = new IteratorForPartition(p, inMemBuffered)
       val iterators = readers.map(_.readNextPartition()) ++ Seq(inMemIterator)
       if (aggregator.isDefined) {
         // Perform partial aggregation across partitions
+        /**  */
         (p, mergeWithAggregation(
           iterators, aggregator.get.mergeCombiners, keyComparator, ordering.isDefined))
       } else if (ordering.isDefined) {
